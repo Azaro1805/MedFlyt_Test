@@ -1,0 +1,59 @@
+// src/app.ts
+import config = require('./config');
+import * as express from 'express';
+import * as  cluster from 'cluster';
+import * as cors from "cors";
+import * as bodyParser from 'body-parser';
+import logger = require('./utils/logger');
+//import controllers
+import * as healthcheckController from './controllers/controller-healthcheck';
+import * as sampleController from './controllers/controller-sample';
+import * as reportCtrl from './controllers/reportController';
+import * as createDb from './dbuploder';
+import { db } from './config';
+
+
+const dbuploder = require('./dbuploder')
+
+const numCPUs = 1;
+
+if (cluster.isMaster) {
+    // create a worker for each CPU
+    for (let i = 0; i < numCPUs; i++) {
+        cluster.fork();
+    }
+    cluster.on('online', (worker) => {
+        logger.info(`worker online, worker id: ${worker.id}`);
+    });
+    //if worker dies, create another one
+    cluster.on('exit', (worker, code, signal) => {
+        logger.error(`worker died, worker id: ${worker.id} | signal: ${signal} | code: ${code}`);
+        cluster.fork();
+    });    
+} else {
+    //create express app
+    const app: express.Express = express();
+    const router: express.Router = express.Router();
+
+    app.use(cors());
+    app.use(bodyParser.json());
+    app.use(router);  // tell the app this is the router we are using
+
+
+    //healthcheck routes
+    router.get('/', healthcheckController.healthcheck);
+    router.get('/healthcheck', healthcheckController.healthcheck);
+    // sampleController routes
+    router.get('/servertime', sampleController.getTime);
+    router.get('/reports/:year', reportCtrl.getReport);
+
+
+    app.listen(config.port, function () {
+        //dbuploder.createTable("caregiver2");
+        //dbuploder.DeleteTable("worker");
+        dbuploder.readSqlFile('./sql/caregiver.sql');
+        //dbuploder.readCsvFile('../cargiverDB.csv','caregiver3');
+        //dbuploder.createTable2("a");
+        logger.info(`worker started: ${cluster.worker.id} | server listening on port: ${config.port}`);
+    });
+}
